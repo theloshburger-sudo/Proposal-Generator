@@ -230,7 +230,7 @@
     const dirOnly = /\/$/.test(p);
     if (dirOnly) p = p.slice(0, -1);
     const anchored = p.indexOf('/') !== -1 && p[0] !== '*';
-    let re = p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\\\*\\\*/g, '.*').replace(/\\\*/g, '[^/]*').replace(/\\\?/g, '[^/]');
+    let re = p.replace(/[.+^${}()|[\]\\*?/]/g, '\\$&').replace(/\\\*\\\*/g, '.*').replace(/\\\*/g, '[^/]*').replace(/\\\?/g, '[^/]');
     re = anchored ? '^' + re.replace(/^\\\//, '') + (dirOnly ? '(?:/|$)' : '(?:/|$)') : '(?:^|/)' + re + (dirOnly ? '(?:/|$)' : '(?:/|$)');
     let compiled = null;
     try { compiled = new RegExp(re); } catch (e) { compiled = null; }
@@ -388,7 +388,11 @@
       const id = svc[0];
       const depRe = svc[1];
       const textRe = svc[2];
-      const matchFiles = files.filter((f) => (depRe && depNames.some((d) => depRe.test(d))) || (textRe && textRe.test(f.text)) || (id === 'github' && /^\.github\//.test(f.path)));
+      const hasDep = !!(depRe && depNames.some((d) => depRe.test(d)));
+      /* A file "uses" a service when its text mentions it. The package.json that
+         declares the dependency is a fallback so dep-only projects still detect. */
+      const matchFiles = files.filter((f) => (textRe && textRe.test(f.text)) || (id === 'github' && /^\.github\//.test(f.path)));
+      if (hasDep) files.filter((f) => /(?:^|\/)package\.json$/.test(f.path) && matchFiles.indexOf(f) === -1).forEach((f) => matchFiles.push(f));
       return matchFiles.length ? { id, files: matchFiles.slice(0, 20).map((f) => f.path) } : null;
     }).filter(Boolean);
 
