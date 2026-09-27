@@ -507,7 +507,7 @@
           <span class="stat-value"><span data-done-count>${doneCount}</span> <span class="muted" style="font-weight:600;font-size:1.1rem">of ${total}</span></span>
           <span class="stat-label">launch steps done</span>
         </div>
-        <div class="small text-2" data-next style="text-align:right">${next ? html`Up next: <button class="btn ghost sm" data-action="jump" data-target="${next.id}">${next.title} ${VC.icon('arrow', 14)}</button>` : ''}</div>
+        <div class="small text-2" data-next style="text-align:right;max-width:100%">${next ? html`Up next: <button class="btn ghost sm" data-action="jump" data-target="${next.id}" style="white-space:normal;text-align:left">${next.title} ${VC.icon('arrow', 14)}</button>` : ''}</div>
       </div>
       ${VC.ui.meter(pct, doneCount === total ? 'green' : '')}
     </section>`;
@@ -612,7 +612,7 @@
         const nextBox = el.querySelector('[data-next]');
         if (nextBox) {
           VC.mount(nextBox, nextItem
-            ? html`Up next: <button class="btn ghost sm" data-action="jump" data-target="${nextItem.id}">${nextItem.title} ${VC.icon('arrow', 14)}</button>`
+            ? html`Up next: <button class="btn ghost sm" data-action="jump" data-target="${nextItem.id}" style="white-space:normal;text-align:left">${nextItem.title} ${VC.icon('arrow', 14)}</button>`
             : html``);
         }
       }

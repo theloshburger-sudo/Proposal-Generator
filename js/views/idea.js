@@ -102,7 +102,7 @@
         ${!opts.hasDirections ? html`<div>
           <span class="hint">Need inspiration? Try one:</span>
           <div class="option-group" style="margin-top:6px">
-            ${EXAMPLES.map((x) => html`<button type="button" class="chip" data-action="example" ${generating ? 'disabled' : ''}>${x.length > 46 ? x.slice(0, 44) + '…' : x}</button>`)}
+            ${EXAMPLES.map((x) => html`<button type="button" class="chip" data-action="example" data-value="${x}" ${generating ? 'disabled' : ''}>${x.length > 46 ? x.slice(0, 44) + '…' : x}</button>`)}
           </div>
         </div>` : ''}
         <div class="row">
@@ -224,7 +224,7 @@
       /* ---------- Events ---------- */
       VC.delegate(el, 'click', '[data-action="example"]', (e, b) => {
         const t = el.querySelector('#idea-text');
-        if (t) { t.value = b.textContent; t.focus(); }
+        if (t) { t.value = b.getAttribute('data-value') || b.textContent; t.focus(); }
       });
 
       VC.delegate(el, 'submit', '#idea-form', async (e) => {
