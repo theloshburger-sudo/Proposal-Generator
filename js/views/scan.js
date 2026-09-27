@@ -27,6 +27,7 @@
   let currentResult = null;   // full ScanResult being shown (live or a past one)
   let currentDiff = null;     // {added, fixed, filesChanged, ...} vs the previous scan, or null
   let viewingPastId = null;   // id of a history entry being viewed, or null for the live result
+  let lastProjectId = null;   // whichever project this module state belongs to
 
   function gradeColor(g) { return g === 'A' || g === 'B' ? 'green' : g === 'C' ? 'yellow' : 'red'; }
 
@@ -165,6 +166,13 @@
 
     render(el, ctx) {
       const p = ctx.project;
+      const pid = p && p.id;
+      if (pid !== lastProjectId) {
+        lastProjectId = pid;
+        currentResult = null;
+        currentDiff = null;
+        viewingPastId = null;
+      }
       const eng = engine();
 
       async function handleInput(raw) {
@@ -192,7 +200,7 @@
           }
 
           await VC.db.set('scan:' + result.id, result);
-          await VC.db.set('scan:latest', result);
+          await VC.db.set('scan:latest:' + (active && active.id), result);
           const summary = eng.summarize(result);
           VC.store.update((q) => { q.scans = [summary].concat(arr(q.scans)).slice(0, 10); });
 

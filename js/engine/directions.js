@@ -126,6 +126,13 @@
     kwCache.set(kw, entry);
     return entry;
   }
+  const brandRegexCache = new Map();
+  function brandRegex(b) {
+    if (brandRegexCache.has(b)) return brandRegexCache.get(b);
+    const re = new RegExp('\\b' + b + '\\b', 'i');
+    brandRegexCache.set(b, re);
+    return re;
+  }
   function archetypesList() { return Array.isArray(VC.data && VC.data.archetypes) ? VC.data.archetypes : []; }
   function archetypeById(id) { return archetypesList().find((a) => a && a.id === id) || null; }
 
@@ -242,7 +249,7 @@
       Object.keys(BRAND_HINTS).forEach((b) => {
         const hint = BRAND_HINTS[b];
         if (hint[0] !== a.id) return;
-        if (new RegExp('\\b' + b + '\\b', 'i').test(text)) {
+        if (brandRegex(b).test(text)) {
           brand += 4;
           if (!prefVariant && hint[1]) prefVariant = hint[1];
         }

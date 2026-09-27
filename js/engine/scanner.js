@@ -110,17 +110,26 @@
       const entry = zip.files[names[i]];
       if (entry.dir) continue;
       const path = entry.name.replace(/^\.?\//, '');
-      const size = (entry._data && entry._data.uncompressedSize) || 0;
-      meta.totalBytes += size;
+      /* ponytail: JSZip has no public sync size accessor; _data.uncompressedSize is
+         an internal field used only as a cheap pre-read estimate (0 if ever renamed).
+         Real bytes are measured below once a file is read, so the 50MB budget still
+         holds even when the estimate is wrong. */
+      const estSize = (entry._data && entry._data.uncompressedSize) || 0;
+      meta.totalBytes += estSize;
       if (meta.totalBytes > MAX_TOTAL_BYTES) { meta.truncated = true; break; }
       if (path.split('/').indexOf('.git') !== -1) meta.sawGit = true;
-      if (!accept(path, size, meta)) continue;
+      if (!accept(path, estSize, meta)) continue;
       let raw;
       try { raw = await entry.async('string'); } catch (e) { meta.skippedCount++; continue; }
       const text = cleanText(raw);
       if (text == null) { meta.skippedCount++; continue; }
+      const size = estSize || new Blob([raw]).size;
+      if (size !== estSize) {
+        meta.totalBytes += size - estSize;
+        if (meta.totalBytes > MAX_TOTAL_BYTES) { meta.truncated = true; break; }
+      }
       meta.count++;
-      out.push({ path, size: size || text.length, text });
+      out.push({ path, size, text });
       await maybeYield();
     }
   }
@@ -137,7 +146,15 @@
 
     let items = null;
     if (input && input.items) {
-      items = Array.prototype.slice.call(input.items).filter((i) => i.kind === 'file').map((i) => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null) || { isFile: true, file: (cb) => cb(i.getAsFile()), fullPath: '/' + (i.getAsFile() ? i.getAsFile().name : 'file') });
+      const fileItems = Array.prototype.slice.call(input.items).filter((i) => i.kind === 'file');
+      const dropped = fileItems.length === 1 ? fileItems[0].getAsFile() : null;
+      if (dropped && /\.zip$/i.test(dropped.name)) {
+        meta.source = 'zip';
+        await readZip(dropped, meta, out);
+        meta.projectName = dropped.name.replace(/\.zip$/i, '');
+      } else {
+        items = fileItems.map((i) => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null) || { isFile: true, file: (cb) => cb(i.getAsFile()), fullPath: '/' + (i.getAsFile() ? i.getAsFile().name : 'file') });
+      }
     } else if (input instanceof FileList || Array.isArray(input)) {
       const files = Array.prototype.slice.call(input);
       if (files.length === 1 && /\.zip$/i.test(files[0].name)) {
@@ -232,7 +249,7 @@
     if (dirOnly) p = p.slice(0, -1);
     const anchored = p.indexOf('/') !== -1 && p[0] !== '*';
     let re = p.replace(/[.+^${}()|[\]\\*?/]/g, '\\$&').replace(/\\\*\\\*/g, '.*').replace(/\\\*/g, '[^/]*').replace(/\\\?/g, '[^/]');
-    re = anchored ? '^' + re.replace(/^\\\//, '') + (dirOnly ? '(?:/|$)' : '(?:/|$)') : '(?:^|/)' + re + (dirOnly ? '(?:/|$)' : '(?:/|$)');
+    re = anchored ? '^' + re.replace(/^\\\//, '') + (dirOnly ? '/' : '(?:/|$)') : '(?:^|/)' + re + (dirOnly ? '/' : '(?:/|$)');
     let compiled = null;
     try { compiled = new RegExp(re); } catch (e) { compiled = null; }
     return compiled ? { re: compiled, neg } : null;
@@ -547,9 +564,9 @@
     return 'medium';
   }
 
-  function makeFinding(rule, file, idx, sev, checkVars, key, secretVal, ctx, dupCounter) {
+  function makeFinding(rule, file, idx, sev, checkVars, key, secretVal, ctx, dupCounter, fcHint) {
     const line = idx >= 0 && file ? lineOf(file, idx).n : 0;
-    const fc = file ? ctx.fileCtx(file) : 'other';
+    const fc = fcHint != null ? fcHint : (file ? ctx.fileCtx(file) : 'other');
     const envIgnored = fc === 'env' && ctx.gitignoreCovers(file ? file.path : '');
     const fctxKey = envIgnored ? 'envIgnored' : fc;
     const vars = Object.assign({
@@ -581,7 +598,7 @@
     return {
       id, ruleId: rule.id, severity: sev, category: rule.category,
       title, plain, risk, fix, fixPrompt,
-      file: vars.file, line, snippet: (line > 0 && file && secretVal !== '') ? makeSnippet(file, idx, secretVal) : undefined,
+      file: vars.file, line, snippet: (line > 0 && file) ? makeSnippet(file, idx, secretVal || '') : undefined,
     };
   }
 
@@ -624,7 +641,9 @@
     const authMiddlewareFile = files.find((f) => /^(?:src\/)?middleware\.[jt]s$/.test(f.path) && helpers.AUTH_RE.test(f.text));
     ctx.authMiddleware = !!authMiddlewareFile;
 
-    const perFileRules = (VC.data.scanRules || []).filter((r) => r.re);
+    const perFileRules = (VC.data.scanRules || []).filter((r) => r.re).map((r) => Object.assign({}, r, {
+      _re: new RegExp(r.re.source, r.re.flags.indexOf('g') === -1 ? r.re.flags + 'g' : r.re.flags),
+    }));
     const projectRules = (VC.data.scanRules || []).filter((r) => r.run);
 
     for (let i = 0; i < files.length; i++) {
@@ -634,7 +653,8 @@
         const rule = perFileRules[r];
         if (rule.when && !rule.when(f, ctx)) continue;
         if (minified && rule.category !== 'secrets') continue;
-        const re = new RegExp(rule.re.source, rule.re.flags.indexOf('g') === -1 ? rule.re.flags + 'g' : rule.re.flags);
+        const re = rule._re;
+        re.lastIndex = 0;
         let m;
         let n = 0;
         const claimed = [];
@@ -666,7 +686,7 @@
           if (rule.once) { if (onceSeen[rule.id]) continue; onceSeen[rule.id] = true; }
 
           const key = resObj.key != null ? resObj.key : (secretVal || m[0].trim());
-          findings.push(makeFinding(rule, f, m.index, sev, resObj.vars, key, rule.category === 'secrets' ? secretVal : '', ctx, dupCounter));
+          findings.push(makeFinding(rule, f, m.index, sev, resObj.vars, key, rule.category === 'secrets' ? secretVal : '', ctx, dupCounter, fc));
           if (++n >= (minified ? 3 : rule.max || 5)) break;
         }
       }

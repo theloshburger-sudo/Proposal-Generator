@@ -8,6 +8,7 @@
   const arr = (v) => (Array.isArray(v) ? v : []);
 
   let latestResult = null;
+  let lastProjectId = null;
 
   function nodeCard(icon, title, sub, badge) {
     return html`<div class="card flat soft stack sm" style="padding:10px 12px">
@@ -33,7 +34,10 @@
     nav: { group: 'tools', order: 1 },
 
     render(el, ctx) {
-      VC.db.get('scan:latest').then((r) => {
+      const pid = ctx.project && ctx.project.id;
+      if (pid !== lastProjectId) { lastProjectId = pid; latestResult = null; }
+      VC.db.get('scan:latest:' + pid).then((r) => {
+        if (lastProjectId !== pid) return;
         const changed = (r && r.id) !== (latestResult && latestResult.id);
         if (changed) { latestResult = r || null; ctx.rerender(); }
       }).catch(() => { /* ignore */ });
@@ -57,7 +61,7 @@
               ${column('API routes', 'code', arr(m.apiRoutes).map((r) => nodeCard('code', r.route, arr(r.methods).join(', '))))}
               ${column('Services', 'globe', arr(m.services).map((s) => {
                 const files = arr(s.files);
-                const primary = files.find((p) => !/(?:^|\/)package\.json$/.test(p) && !/^\.env/.test(p)) || files[0] || '';
+                const primary = files.find((p) => !/(?:^|\/)package\.json$/.test(p) && !/^\.env(?:\..*)?$/.test(p.split('/').pop() || p)) || files[0] || '';
                 return nodeCard('globe', s.name, primary + (files.length > 1 ? ` +${files.length - 1} more` : ''));
               }))}
               ${column('Database tables', 'db', arr(m.tables).map((t) => nodeCard('db', t.name, t.rls === true ? 'RLS on' : t.rls === false ? 'RLS off' : 'RLS unknown', VC.ui.badge(t.rls === true ? 'Locked' : (t.rls === false ? 'Open' : '?'), t.rls === true ? 'green' : (t.rls === false ? 'red' : 'gray')))))}

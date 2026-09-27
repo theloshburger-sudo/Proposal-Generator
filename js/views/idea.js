@@ -53,7 +53,7 @@
     const features = uniqBy(picks.reduce((all, d) => all.concat(arr(d.features)), []), (f) => String(f).toLowerCase().trim());
     const screens = uniqBy(picks.reduce((all, d) => all.concat(arr(d.screens)), []), (s) => s && s.name).slice(0, 4);
     const D = engine();
-    const mixed = D && D.mix ? D.mix(primary, features, directions) : Object.assign({}, primary, { id: VC.uid('d'), features });
+    const mixed = D && D.mix ? D.mix(primary, features, picks) : Object.assign({}, primary, { id: VC.uid('d'), features });
     mixed.screens = screens.length ? screens : mixed.screens;
     mixed.mixOf = picks.map((d) => d.name);
     return mixed;
