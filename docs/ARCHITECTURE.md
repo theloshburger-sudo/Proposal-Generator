@@ -15,7 +15,7 @@ This file is the **single source of truth** for how the app's parts fit together
   - Render with `VC.html\`\``, which escapes every interpolation automatically.
   - Never put user, AI, or file content into `VC.raw()`. Use `VC.raw` only for strings you wrote yourself.
   - Never use `innerHTML` with unescaped strings. Use `VC.mount(el, html\`...\`)`.
-- **API keys are never persisted in the project.** The Setup wizard keeps pasted keys in memory only (a module-level variable) and says so.
+- **API keys are never persisted in the project object.** The Setup wizard keeps pasted service keys in memory only (a module-level variable) and says so. The one exception is the user's own AI key: `VC.ai.setKey` stores it in `sessionStorage` by default, or `localStorage` only if the user explicitly checks "Remember on this device" in Settings — always disclosed, never silent, and still never written into a `project` object.
 - **Offline first.** Every feature works without an AI key. When `VC.ai.enabled()`, the AI-powered paths are optional upgrades, and each falls back to the offline result if the AI call throws (show a toast with the error message).
 - **Styling:** use only the classes in `css/styles.css` (vocabulary below) plus inline `style=""` for one-off spacing. Don't add stylesheets.
 

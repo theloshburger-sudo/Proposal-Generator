@@ -93,7 +93,7 @@
       max_tokens: maxTokens || 16000,
       messages: [{ role: 'user', content: redact(prompt) }],
     };
-    if (system) params.system = system;
+    if (system) params.system = redact(system);
     const outputConfig = {};
     if (model.effort) outputConfig.effort = effort || 'medium';
     if (schema) outputConfig.format = { type: 'json_schema', schema: strictSchema(schema) };
