@@ -16,7 +16,7 @@ This file is the **single source of truth** for how the app's parts fit together
   - Never put user, AI, or file content into `VC.raw()`. Use `VC.raw` only for strings you wrote yourself.
   - Never use `innerHTML` with unescaped strings. Use `VC.mount(el, html\`...\`)`.
 - **API keys are never persisted in the project object.** The Setup wizard keeps pasted service keys in memory only (a module-level variable) and says so. The one exception is the user's own AI key: `VC.ai.setKey` stores it in `sessionStorage` by default, or `localStorage` only if the user explicitly checks "Remember on this device" in Settings — always disclosed, never silent, and still never written into a `project` object.
-- **Offline first.** Every feature works without an AI key. When `VC.ai.enabled()`, the AI-powered paths are optional upgrades, and each falls back to the offline result if the AI call throws (show a toast with the error message).
+- **Offline first.** Every feature works with no AI configured at all. When `VC.ai.enabled()` (a shared backend and/or the user's own key), the AI-powered paths are optional upgrades, and each falls back to the offline result if the AI call throws (show a toast with the error message).
 - **Styling:** use only the classes in `css/styles.css` (vocabulary below) plus inline `style=""` for one-off spacing. Don't add stylesheets.
 
 ## Core API (js/core.js)
@@ -34,6 +34,7 @@ VC.download(filename, textOrBlob, mime?)
 VC.on(evt, fn) / VC.emit(evt, payload)
 VC.storage.get/set/remove(key)    // localStorage, never throws
 VC.db.get/set/del(key)            // IndexedDB key/value (async), memory fallback
+VC.db.clear()                     // wipes every key (async); used by Settings → "Delete everything"
 VC.store.active()                 // active project or null
 VC.store.create(idea)             // new project, becomes active
 VC.store.update(p => { ... })     // mutate active project + persist
@@ -80,11 +81,20 @@ VC.registerView({
 Journey order: `idea`(1) → `kit`(2) → `setup`(3) → `prompts`(4) → `scan`(5) → `ship`(6). Tools: `map`(1), `settings`(9). `home` has no nav group; it's shown at the top automatically.
 
 ### AI (js/ai.js)
+Calls go one of two ways, chosen automatically — callers never need to care which:
+1. **Backend** (default if configured): `VC.ai.backendUrl()` set → POSTs to `<url>/v1/complete`. See `server/` — a small proxy that holds the real Claude key, rate-limits by IP, and enforces a daily spend cap. No key touches the browser on this path.
+2. **Own key** (opt-in, unlimited): a key saved via `VC.ai.setKey` → calls api.anthropic.com directly from the browser with it. Takes priority over the backend when both are set.
+
 ```js
-VC.ai.enabled() -> bool
+VC.ai.enabled() -> bool             // true if EITHER path is usable
+VC.ai.mode() -> 'own' | 'backend' | 'off'
+VC.ai.hasOwnKey() -> bool
+VC.ai.hasBackend() -> bool
+VC.ai.backendUrl() -> string        // '' if none configured
+VC.ai.setBackendUrl(url)            // '' clears it; persisted in localStorage (not a secret)
 VC.ai.json({system, prompt, schema, maxTokens?, effort?}) -> Promise<object>  // schema = JSON Schema; objects auto-made strict
 VC.ai.text({system, prompt, maxTokens?, effort?}) -> Promise<string>
-VC.ai.redact(text)   // strips secrets (auto-applied to prompts)
+VC.ai.redact(text)   // strips secrets (auto-applied to prompts AND system, on both paths, before anything leaves the browser)
 ```
 Errors come back as friendly `Error` messages: show them with `VC.ui.toast(err.message, 'error')` and fall back to offline. For AI calls, show a spinner and disable the button.
 

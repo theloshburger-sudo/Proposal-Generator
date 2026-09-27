@@ -197,6 +197,10 @@
         mem.delete(key);
         await tx('readwrite', (s) => s.delete(key));
       },
+      async clear() {
+        mem.clear();
+        await tx('readwrite', (s) => s.clear());
+      },
     };
   })();
 

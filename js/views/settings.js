@@ -12,22 +12,39 @@
     render(el, ctx) {
       el.classList.add('narrow');
       const s = VC.store.settings();
-      const hasKey = VC.ai.enabled();
+      const hasOwnKey = VC.ai.hasOwnKey();
+      const hasBackend = VC.ai.hasBackend();
+      const mode = VC.ai.mode();
       const remembered = !!VC.storage.get('vibecheck.aiKey', null);
+      const MODE_BADGE = { own: VC.ui.badge('On · your key', 'green'), backend: VC.ui.badge('On · shared access', 'blue'), off: VC.ui.badge('Off', 'gray') };
 
       VC.mount(el, html`
         ${VC.ui.pageHead({ eyebrow: 'Settings', title: 'Settings', lead: 'Everything here stays in this browser. Nothing is sent anywhere unless you turn on AI.' })}
 
         <section class="card pad-lg stack">
           <div class="spread">
-            <h2 class="mb-0">${VC.icon('sparkles')} AI boost <span class="muted small">(optional)</span></h2>
-            ${hasKey ? VC.ui.badge('On', 'green') : VC.ui.badge('Off', 'gray')}
+            <h2 class="mb-0">${VC.icon('sparkles')} AI features <span class="muted small">(optional)</span></h2>
+            ${MODE_BADGE[mode]}
           </div>
-          <p class="text-2 mb-0">Vibe Check works without AI. With your own Claude ${VC.ui.term('API key')}, it can invent custom directions for any idea, write prompts tailored to your project, and explain scan results in more depth.</p>
-          ${VC.ui.callout('info', html`Your key goes straight from this browser to Anthropic. Secrets in your code are removed before anything is sent. You pay Anthropic directly for what you use (typically a few cents per request).`)}
+          <p class="text-2 mb-0">Vibe Check works without AI. With it on, it can invent custom directions for any idea, write prompts tailored to your project, and explain scan results in more depth.</p>
+          ${mode === 'backend' ? VC.ui.callout('info', 'You\'re using Vibe Check\'s shared AI backend — free, but limited to a number of requests per day from this network. Add your own key below for unlimited use.') : ''}
+
+          <div class="field">
+            <label for="backend-url">Shared AI backend URL <span class="muted small">(optional)</span></label>
+            <input id="backend-url" class="mono" autocomplete="off" spellcheck="false" placeholder="https://your-service.onrender.com" value="${VC.ai.backendUrl()}">
+            <span class="hint">Leave blank if you don't have one. Whoever runs this copy of Vibe Check can deploy one for everyone to share — see server/README.md.</span>
+          </div>
+          <div class="row">
+            <button class="btn" data-action="save-backend">Save backend URL</button>
+            ${hasBackend ? html`<button class="btn ghost" data-action="clear-backend">${VC.icon('trash', 16)} Clear</button>` : ''}
+          </div>
+
+          <hr>
+          <h3 class="mb-0">Your own Claude ${VC.ui.term('API key')} <span class="muted small">(optional, unlimited use)</span></h3>
+          ${VC.ui.callout('info', html`Your key goes straight from this browser to Anthropic — never through Vibe Check's backend. Secrets in your code are removed before anything is sent. You pay Anthropic directly for what you use (typically a few cents per request).`)}
           <div class="field">
             <label for="ai-key">Claude API key</label>
-            <input id="ai-key" type="password" class="mono" autocomplete="off" spellcheck="false" placeholder="${hasKey ? '•••••••• saved — paste a new one to replace' : 'sk-ant-…'}">
+            <input id="ai-key" type="password" class="mono" autocomplete="off" spellcheck="false" placeholder="${hasOwnKey ? '•••••••• saved — paste a new one to replace' : 'sk-ant-…'}">
             <span class="hint">Get one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com → API Keys</a>. You'll need to add a little credit to your account.</span>
           </div>
           <label class="check"><input type="checkbox" id="ai-remember" ${remembered || s.rememberKey ? 'checked' : ''}><span>Remember on this device <span class="muted small">— leave off on shared computers (the key is forgotten when you close the tab)</span></span></label>
@@ -39,8 +56,8 @@
           </div>
           <div class="row">
             <button class="btn primary" data-action="save-key">${VC.icon('check', 16)} Save key</button>
-            <button class="btn" data-action="test-key" ${hasKey ? '' : 'disabled'}>Test connection</button>
-            ${hasKey ? html`<button class="btn danger" data-action="clear-key">${VC.icon('trash', 16)} Remove key</button>` : ''}
+            <button class="btn" data-action="test-key" ${VC.ai.enabled() ? '' : 'disabled'}>Test connection</button>
+            ${hasOwnKey ? html`<button class="btn danger" data-action="clear-key">${VC.icon('trash', 16)} Remove key</button>` : ''}
             <span id="ai-status" class="small muted"></span>
           </div>
         </section>
@@ -78,7 +95,7 @@
               return;
             }
             VC.ai.setKey(key, remember);
-          } else if (VC.ai.enabled()) {
+          } else if (VC.ai.hasOwnKey()) {
             VC.ai.setKey(VC.ai.getKey(), remember);
           }
           VC.ui.toast('Saved', 'success');
@@ -98,6 +115,19 @@
           VC.ai.clearKey();
           VC.ui.toast('Key removed');
           ctx.rerender();
+        } else if (act === 'save-backend') {
+          const url = el.querySelector('#backend-url').value.trim();
+          if (url && !/^https?:\/\//i.test(url)) {
+            VC.ui.toast('That doesn\'t look like a URL — it should start with http:// or https://.', 'error');
+            return;
+          }
+          VC.ai.setBackendUrl(url);
+          VC.ui.toast(url ? 'Backend URL saved' : 'Backend URL cleared', 'success');
+          ctx.rerender();
+        } else if (act === 'clear-backend') {
+          VC.ai.setBackendUrl('');
+          VC.ui.toast('Backend URL cleared');
+          ctx.rerender();
         } else if (act === 'theme') {
           VC.store.setSetting('theme', b.getAttribute('data-theme'));
           VC.applyTheme();
@@ -109,7 +139,7 @@
           if (ok) {
             VC.store.resetAll();
             VC.ai.clearKey();
-            try { await VC.db.del('scan:latest'); } catch (err) { /* ignore */ }
+            try { await VC.db.clear(); } catch (err) { /* ignore */ }
             VC.ui.toast('All data deleted');
             VC.go('home');
           }

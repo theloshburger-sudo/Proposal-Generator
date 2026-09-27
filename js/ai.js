@@ -1,12 +1,23 @@
-/* Vibe Check — optional AI (bring your own Claude API key).
-   The key never leaves the browser except to go straight to api.anthropic.com.
-   Everything in the app must still work when VC.ai.enabled() is false. */
+/* Vibe Check — AI features run one of two ways:
+     1. Backend (default, shared, rate-limited): the browser calls Vibe
+        Check's own small proxy (see /server), which holds the real Claude
+        key server-side. No key ever touches this browser for this path.
+     2. Your own key (unlimited, opt-in): set in Settings, calls
+        api.anthropic.com directly from the browser with that key.
+   Everything in the app must still work when VC.ai.enabled() is false
+   (no key AND no backend configured) — every AI call falls back to an
+   offline result. */
 (function () {
   'use strict';
   const VC = window.VC;
 
   const SDK_URL = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.128.0/+esm';
   const KEY_NAME = 'vibecheck.aiKey';
+  const BACKEND_URL_NAME = 'vibecheck.backendUrl';
+  /* Fill this in with your deployed server/ URL (see server/README.md) so AI
+     features work for visitors with no setup of their own. Leave blank to
+     require either a backend URL pasted into Settings or a personal key. */
+  const DEFAULT_BACKEND_URL = '';
 
   const MODELS = [
     { id: 'claude-opus-5', label: 'Claude Opus 5', note: 'Best quality (recommended)', fallbacks: true, effort: true },
@@ -81,9 +92,34 @@
 
   function modelInfo(id) { return MODELS.find((m) => m.id === id) || MODELS[0]; }
 
-  async function call({ system, prompt, schema, maxTokens, effort }) {
+  function backendUrl() {
+    return (VC.storage.get(BACKEND_URL_NAME, null) || DEFAULT_BACKEND_URL || '').trim().replace(/\/$/, '');
+  }
+
+  /** Calls Vibe Check's own backend proxy — no key touches this browser for this path. */
+  async function callBackend({ system, prompt, schema, maxTokens, effort }) {
+    const url = backendUrl();
+    const model = modelInfo(VC.store.settings().aiModel).id;
+    let res;
+    try {
+      res = await fetch(url + '/v1/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ system: system ? redact(system) : undefined, prompt: redact(prompt), schema, maxTokens, effort, model }),
+      });
+    } catch (e) {
+      throw new Error('Couldn\'t reach the shared AI backend. Check your internet connection, or add your own Claude key in Settings.');
+    }
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* fall through with data=null */ }
+    if (!res.ok || (data && data.error)) {
+      throw new Error((data && data.error) || 'The shared AI backend had a problem. Try again, or add your own Claude key in Settings.');
+    }
+    return (data && data.text) || '';
+  }
+
+  async function callOwnKey({ system, prompt, schema, maxTokens, effort }) {
     const key = VC.ai.getKey();
-    if (!key) throw new Error('Add your Claude API key in Settings to use AI features.');
     const Anthropic = await loadSdk();
     const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true, maxRetries: 2 });
     const model = modelInfo(VC.store.settings().aiModel);
@@ -119,6 +155,13 @@
     return text;
   }
 
+  /** Prefers the user's own key (unlimited, direct) over the shared backend (rate-limited). */
+  async function call(args) {
+    if (VC.ai.hasOwnKey()) return callOwnKey(args);
+    if (VC.ai.hasBackend()) return callBackend(args);
+    throw new Error('AI features aren\'t set up: add your Claude API key in Settings, or configure the shared AI backend.');
+  }
+
   VC.ai = {
     models: MODELS,
     redact,
@@ -141,7 +184,17 @@
       VC.storage.sessionRemove(KEY_NAME);
       VC.emit('ai:change', false);
     },
-    enabled() { return !!VC.ai.getKey(); },
+    hasOwnKey() { return !!VC.ai.getKey(); },
+    hasBackend() { return !!backendUrl(); },
+    enabled() { return VC.ai.hasOwnKey() || VC.ai.hasBackend(); },
+    /** 'own' (unlimited, your key) | 'backend' (shared, rate-limited) | 'off' (offline only). */
+    mode() { return VC.ai.hasOwnKey() ? 'own' : (VC.ai.hasBackend() ? 'backend' : 'off'); },
+    backendUrl,
+    setBackendUrl(url) {
+      url = String(url || '').trim().replace(/\/$/, '');
+      if (url) VC.storage.set(BACKEND_URL_NAME, url); else VC.storage.remove(BACKEND_URL_NAME);
+      VC.emit('ai:change', VC.ai.enabled());
+    },
     looksLikeKey(k) { return /^sk-ant-[A-Za-z0-9_\-]{20,}$/.test(String(k || '').trim()); },
     currentModel() { return modelInfo(VC.store.settings().aiModel); },
 
