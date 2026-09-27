@@ -17,6 +17,15 @@ const DAILY_SPEND_CAP_USD = Number(process.env.DAILY_SPEND_CAP_USD) || 5;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
 const MAX_BODY_BYTES = 100 * 1024;
 const MAX_TOKENS_CEILING = 16000;
+/* ponytail: the rate limiter and spend cap only count a request once its
+   Anthropic call finishes, so a burst of concurrent requests can all pass
+   the day's spend-cap check before any of them land. Capping how many can
+   be in flight at once bounds the worst case to roughly
+   MAX_CONCURRENT * one request's max possible cost, without needing an
+   upfront cost reservation. Upgrade to reserving estimated cost before the
+   call (and truing it up after) if that bound is still too loose for you. */
+const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT) || 5;
+let inFlight = 0;
 
 if (!API_KEY) {
   console.error('ANTHROPIC_API_KEY is not set. Copy .env.example to .env and fill it in, or set it in your host\'s environment variables.');
@@ -65,9 +74,18 @@ function friendlyError(err) {
   return { status: 500, message: 'Something went wrong on the backend.' };
 }
 
+/* Render (like nginx/Cloudflare/Heroku) APPENDS the real client IP to
+   whatever X-Forwarded-For the client already sent, rather than replacing
+   it — so the trustworthy value is the LAST entry, not the first (a client
+   can freely set its own leading X-Forwarded-For to fake the first entry).
+   This assumes Render is the sole ingress; re-check if ever placed behind
+   an additional untrusted proxy. */
 function clientIp(req) {
   const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.trim()) return fwd.split(',')[0].trim();
+  if (typeof fwd === 'string' && fwd.trim()) {
+    const hops = fwd.split(',').map((s) => s.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1];
+  }
   return (req.socket && req.socket.remoteAddress) || 'unknown';
 }
 
@@ -127,8 +145,13 @@ async function handleComplete(req, res) {
     return;
   }
 
+  if (inFlight >= MAX_CONCURRENT) {
+    sendJson(res, 503, { error: 'The shared AI backend is busy right now. Try again in a few seconds, or add your own key in Settings.' });
+    return;
+  }
+
   const system = typeof body.system === 'string' ? body.system : undefined;
-  const maxTokens = Math.min(Number(body.maxTokens) || 4000, MAX_TOKENS_CEILING);
+  const maxTokens = Math.max(1, Math.min(Number(body.maxTokens) || 4000, MAX_TOKENS_CEILING));
   const effort = ['low', 'medium', 'high'].includes(body.effort) ? body.effort : 'medium';
   const modelId = Object.prototype.hasOwnProperty.call(MODELS, body.model) ? body.model : DEFAULT_MODEL;
   const model = MODELS[modelId];
@@ -144,6 +167,7 @@ async function handleComplete(req, res) {
   if (body.schema) outputConfig.format = { type: 'json_schema', schema: strictSchema(body.schema) };
   if (Object.keys(outputConfig).length) params.output_config = outputConfig;
 
+  inFlight++;
   try {
     let response;
     if (model.fallbacks) {
@@ -164,6 +188,8 @@ async function handleComplete(req, res) {
     const friendly = friendlyError(err);
     console.error('[backend] Claude call failed:', err && err.message);
     sendJson(res, friendly.status, { error: friendly.message });
+  } finally {
+    inFlight--;
   }
 }
 

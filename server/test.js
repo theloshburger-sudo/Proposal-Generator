@@ -129,8 +129,9 @@ test('friendlyError maps an unrecognized error to a generic 500 without leaking 
   assert.ok(!message.includes('some internal detail'), 'raw error text must not leak to the client');
 });
 
-test('clientIp prefers X-Forwarded-For (Render sits behind a proxy), falls back to the socket', () => {
-  assert.strictEqual(clientIp({ headers: { 'x-forwarded-for': '9.9.9.9, 10.0.0.1' }, socket: {} }), '9.9.9.9');
+test('clientIp trusts the LAST X-Forwarded-For hop (the one Render itself appends), not a client-spoofable leading one', () => {
+  // A client can send its own leading X-Forwarded-For; Render appends the real IP after it.
+  assert.strictEqual(clientIp({ headers: { 'x-forwarded-for': '1.2.3.4 (attacker-supplied), 9.9.9.9' }, socket: {} }), '9.9.9.9');
   assert.strictEqual(clientIp({ headers: {}, socket: { remoteAddress: '127.0.0.1' } }), '127.0.0.1');
 });
 

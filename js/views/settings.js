@@ -32,7 +32,7 @@
           <div class="field">
             <label for="backend-url">Shared AI backend URL <span class="muted small">(optional)</span></label>
             <input id="backend-url" class="mono" autocomplete="off" spellcheck="false" placeholder="https://your-service.onrender.com" value="${VC.ai.backendUrl()}">
-            <span class="hint">Leave blank if you don't have one. Whoever runs this copy of Vibe Check can deploy one for everyone to share — see server/README.md.</span>
+            <span class="hint">Leave blank if you don't have one. Whoever runs this copy of Vibe Check can deploy one for everyone to share — see server/README.md. Only paste a URL for a backend you trust: every AI request's text goes straight to it.</span>
           </div>
           <div class="row">
             <button class="btn" data-action="save-backend">Save backend URL</button>
@@ -117,8 +117,9 @@
           ctx.rerender();
         } else if (act === 'save-backend') {
           const url = el.querySelector('#backend-url').value.trim();
-          if (url && !/^https?:\/\//i.test(url)) {
-            VC.ui.toast('That doesn\'t look like a URL — it should start with http:// or https://.', 'error');
+          const isLocalHttp = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(url);
+          if (url && !/^https:\/\//i.test(url) && !isLocalHttp) {
+            VC.ui.toast('Use an https:// URL — anything you send to AI features goes there in the clear otherwise. (http://localhost is fine for testing your own backend.)', 'error');
             return;
           }
           VC.ai.setBackendUrl(url);
