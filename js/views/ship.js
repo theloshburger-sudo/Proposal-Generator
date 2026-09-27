@@ -170,6 +170,19 @@
         how: hostSteps,
       },
     ];
+    if (aiIds.length) {
+      keys.push({
+        id: 'ai-backend',
+        title: `${listJoin(aiIds.map(nameOf))} calls go through a small server, never your browser code`,
+        why: 'An AI key pasted into frontend code is visible to every visitor, who could run up your bill or use it for anything they want.',
+        how: [
+          `Ask ${B}: "Does any AI call happen in code that runs in the browser? Show me every file that calls ${listJoin(aiIds.map(nameOf))}."`,
+          'Move any AI call into a backend function (an API route, an Edge Function, or a small separate server) that holds the key in an environment variable.',
+          'Add a daily request limit per visitor and a spending cap, so one person (or a bug) can\'t run up a surprise bill.',
+          'The safety scan also flags AI keys found in browser code.',
+        ],
+      });
+    }
     if (secrets.envFile) {
       const file = secrets.envFileName || '.env';
       keys.push({

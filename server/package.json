@@ -1,0 +1,17 @@
+{
+  "name": "vibe-check-ai-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Small proxy that holds the Anthropic API key server-side for Vibe Check's shared AI features.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.128.0"
+  }
+}
