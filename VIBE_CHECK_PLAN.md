@@ -1,10 +1,10 @@
 # Vibe Check — Product Plan
 
-> Drag in your app. Find out if it's safe, understand what you built, and get the exact prompt to fix it.
+> Tell it your idea. It shows you what it could be, gives you everything you need to build it, writes the prompts, and checks your work, so the hard parts of vibe coding stop being hard.
 
 ## Who it's for
 
-People building apps with AI tools (Lovable, Bolt, Replit, v0, Cursor, Claude Code) who **can't read the code** they're shipping.
+People building apps with AI tools (Lovable, Bolt, Replit, v0, Cursor, Claude Code) who **aren't technical**. They have ideas, but they get stuck on API keys, environment setup, bad prompts, huge token bills and apps that aren't safe.
 
 ## The problem (researched)
 
@@ -16,46 +16,86 @@ People building apps with AI tools (Lovable, Bolt, Replit, v0, Cursor, Claude Co
 | Lost work | Replit's agent deleted SaaStr's production database during a code freeze (Jul 2025). |
 | Cost blowups | Replit users reported ~$1,000/week bills; unprotected AI endpoints can be drained by anyone. |
 | Doom loop | "Fix one bug, get two." The top dev frustration (66%, Stack Overflow 2025) is AI output that's "almost right." |
+| Setup wall | Which API to use, how to get the key, what's free, where the key goes, which keys are public vs secret: the most common place non-technical builders quit. |
 
-**Gaps in existing tools:** secret scanners (gitleaks, TruffleHog) are command-line tools for engineers. Platform scanners only cover their own platform. External scanners only see the deployed site and are paid. Nothing is local, nothing explains findings in context, and nothing is written for non-developers.
+**Gaps in existing tools:** secret scanners are command-line tools for engineers. Platform scanners only cover their own platform. External scanners only see the deployed site. Nothing guides you from idea to setup to safe launch, and nothing is written for non-developers.
 
 ## Principles
 
-1. **Nothing leaves your computer.** The scan runs in the browser; your secrets never get uploaded.
-2. **No jargon.** Every finding answers: *What's wrong? What could someone do with it? How do I fix it?*
-3. **Fixes are prompts.** Every issue has a "Copy fix prompt" button to paste into your AI tool.
-4. **Help people build better, not just scan.** Guide them before, during and after the build.
+1. **No jargon.** Every screen answers *what, why and exactly what to click next*.
+2. **Fewer tokens, better product.** Plan once, build in small verified steps, never re-explain the project.
+3. **Safe by default.** Security goes into the first prompt, not added after a breach.
+4. **Nothing leaves your computer** unless you add your own AI key, and secrets are removed before anything is sent.
 
-## Features
+## The journey
 
-### Phase 1 — Safety scan (MVP, no backend, no API key)
-1. **Drag-and-drop folder scan** (or a .zip file). Skips `node_modules` and build output.
-2. **Secret detector.** Platform-aware rules for Supabase (service_role vs anon), Stripe `sk_live`, OpenAI, Anthropic, AWS, Firebase and GitHub tokens, plus a check for random-looking strings. Knows the difference between "public by design" and "a disaster," and flags secrets in files that run in the browser.
-3. **Database lock check.** Reads Supabase SQL/migrations to find tables without RLS or policies, and Firebase rules for `allow read, write: if true`.
-4. **Launch-readiness checks.** Missing `.gitignore`, `.env` files that would be committed, no version control, no lockfile, AI/paid endpoints without auth or rate limits, `dangerouslySetInnerHTML`/`eval`, and CORS open to everyone (`*`).
-5. **Report card.** An A–F grade with red/yellow/green findings, plain-English explanations and a fix prompt for each.
+```
+ IDEA ──► DIRECTIONS ──► BUILD KIT ──► SETUP ──► BUILD ──► CHECK ──► SHIP
+ "an app   3–4 example    what you     get keys   step-by-   scan for   launch
+  for..."  versions to    need + the   & put them step       leaks &    checklist
+           pick from      plan         in place   prompts    holes
+```
 
-### Phase 2 — Understand your app
-6. **Visual app map.** Pages, API routes, database tables and outside services (Stripe, Supabase, OpenAI…) detected and drawn as a diagram, not a file tree.
-7. **"What your app does" summary.** Built from what the scan detects; an optional AI key makes it richer.
-8. **Glossary tooltips.** Hover over "RLS," "API key," "env var" and get a one-sentence explanation.
+### 1. Idea → Directions
+- Type your idea in one sentence ("an app where producers track which artists have their beats").
+- Get **3–4 example directions**, each shown as a card with: a name, a one-line pitch, who it's for, key features, a wireframe sketch, **difficulty** (easy/medium/hard) and **monthly cost** (free / ~$X).
+- Choose one, or mix features from several ("take A but add payments from C").
+- A few quick follow-up questions: Do users log in? Do you take payments? Mobile or web? Which AI builder are you using?
 
-### Phase 3 — Build better (escape the doom loop)
-9. **Snapshots and diff.** Scan before and after an AI change: "The AI changed 38 files and added 2 new risks."
-10. **Blueprint builder.** Before building, answer 6 simple questions (users? logins? payments? data?) and get a project brief plus a starter prompt with security built in: RLS on, keys in env vars, rate limits.
-11. **Stuck? mode.** Paste the error and what you asked for; get a structured prompt that breaks the loop (reset context, smaller step, verify first).
-12. **Export report.** Markdown/PDF to hand to a developer or paste into the AI tool.
+### 2. Build Kit
+Once you pick a direction, you get:
+- **What you need:** each service the app requires, why it needs it, the **recommended pick** for this app, and alternatives. Example: *Login and database → Supabase (free tier). Payments → Stripe. AI features → Claude API.*
+- **Recommended builder tool** for this project (e.g. Lovable for quick web apps, Cursor/Claude Code for more control), with the reason.
+- **Build plan:** the app broken into 5–8 small milestones in the right order (sign-up → database → core feature → payments → polish).
+- **Cost estimate:** services and a rough token/credit budget for the build.
 
-### Optional AI key (called directly from the browser, secrets removed first)
-- Deeper file-by-file explanations
-- Chat with your app map ("where does the login happen?")
-- Smarter, project-specific fix prompts
+### 3. Setup Wizard (the hard part, made easy)
+For every service in the kit, step-by-step walkthroughs:
+- **Get the key:** "Go to this link → click this button → copy this value," with a checkbox for each step.
+- **Public or secret?** Every key is labeled 🟢 *safe in your app* (e.g. Supabase anon key) or 🔴 *never put this in your app's frontend* (e.g. Stripe secret key, Supabase service_role).
+- **Where it goes:** exact instructions for *your* tool: Lovable/Bolt secrets panel, Replit Secrets, `.env.local` for Cursor/Claude Code, Vercel/Netlify environment variables for launch.
+- **`.env` file generator:** paste your keys into a form and it builds a correctly named `.env` file plus a `.gitignore` so the keys never get uploaded.
+- **Key checker:** confirms the key *looks* right (correct prefix/format) and that it's in the right place. The key stays on your device.
+
+### 4. Prompt Studio (best results, fewest tokens)
+- **Project brief (context file):** a short spec generated once and saved in the project as `CLAUDE.md`, `.cursorrules` or pinned project knowledge, so the AI never needs the project re-explained.
+- **One prompt per milestone:** each is scoped, has clear "done when…" checks, and has **safety rules built in** (keys in env vars, RLS on, input validation, rate limits on AI endpoints).
+- **Token-saving habits built into every prompt:**
+  - Ask for a plan before code on big steps.
+  - Change only named files; don't rewrite what works.
+  - One feature per prompt, then test.
+  - Start a fresh chat per milestone, carrying over the brief instead of the history.
+  - Use a cheaper/faster mode for small fixes, the strong model for architecture.
+- **Prompt improver:** paste your own prompt and get a tighter, safer version, with an estimate of the tokens saved.
+- **Stuck? mode:** paste the error and what you asked for, and get a structured "break the loop" prompt (reset, reproduce, smallest fix, verify).
+
+### 5. Check (Safety Scan)
+- Drag in your project folder or .zip. **It runs entirely in the browser; nothing is uploaded.**
+- **Secret detector:** platform-aware rules (Supabase, Stripe, OpenAI, Anthropic, AWS, Firebase, GitHub) that know "public by design" from "disaster," and flag secrets in files that run in the browser.
+- **Database lock check:** Supabase tables without RLS or policies, and Firebase `allow read, write: if true`.
+- **Launch mistakes:** missing `.gitignore`, `.env` files that would be committed, no version control, AI/paid endpoints with no auth or rate limit, `eval`/unsafe HTML, and CORS open to everyone (`*`).
+- **A–F report card** with plain-English explanations and a **"Copy fix prompt"** button for each issue.
+- **Before/after snapshots:** "The AI changed 38 files and added 2 new risks."
+- **Visual app map:** pages, API routes, database tables and outside services drawn as a diagram.
+
+### 6. Ship
+- A launch checklist tailored to the chosen stack (environment variables set on the host, test payment → live payment, custom domain, backups, error page).
+
+## How the "brain" works
+- **Built-in knowledge base (works offline, free):** a curated catalog of common services (auth, database, payments, AI, email, maps, file storage, hosting) with free tiers, key formats, public/secret labels and per-tool placement guides; app archetypes (marketplace, SaaS dashboard, social, booking, AI tool, e-commerce, tracker) for generating directions; prompt templates with safety and token rules.
+- **Optional AI key (bring your own, e.g. Claude):** turns any idea into custom directions, writes prompts specific to the project, and explains scan findings in more depth. Calls go straight from the browser to the provider, and the key is stored only on your device.
 
 ## Tech
 - A single static web page (HTML/JS). It runs offline and can be hosted free on GitHub Pages.
-- File System Access API / `webkitdirectory` to read the folder, and JSZip to open .zip files.
-- The scan runs in a Web Worker so the UI stays smooth.
-- Scan history (for snapshots) is stored locally in the browser with IndexedDB.
+- File System Access API / `webkitdirectory` + JSZip to read project files, with scanning in a Web Worker.
+- IndexedDB for saved projects, briefs and scan snapshots.
+
+## Build order
+1. **Idea → Directions → Build Kit** (knowledge base + optional AI).
+2. **Setup Wizard + `.env` generator.**
+3. **Prompt Studio.**
+4. **Safety Scan + report card.**
+5. App map, snapshots, Ship checklist.
 
 ## Success metric
-A non-technical person can go from "drag folder" to "fixed my worst issue" in **under 5 minutes** without looking anything up.
+A non-technical person goes from **"I have an idea"** to **"my app is built, set up correctly and passes the safety scan"** without searching for anything outside Vibe Check.
