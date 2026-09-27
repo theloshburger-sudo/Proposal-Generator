@@ -55,7 +55,11 @@
             <div class="grid-4">
               ${column('Pages', 'file', arr(m.pages).map((p) => nodeCard('file', p.route || '/', p.file)))}
               ${column('API routes', 'code', arr(m.apiRoutes).map((r) => nodeCard('code', r.route, arr(r.methods).join(', '))))}
-              ${column('Services', 'globe', arr(m.services).map((s) => nodeCard('globe', s.name, (arr(s.files)[0] || ''))))}
+              ${column('Services', 'globe', arr(m.services).map((s) => {
+                const files = arr(s.files);
+                const primary = files.find((p) => !/(?:^|\/)package\.json$/.test(p) && !/^\.env/.test(p)) || files[0] || '';
+                return nodeCard('globe', s.name, primary + (files.length > 1 ? ` +${files.length - 1} more` : ''));
+              }))}
               ${column('Database tables', 'db', arr(m.tables).map((t) => nodeCard('db', t.name, t.rls === true ? 'RLS on' : t.rls === false ? 'RLS off' : 'RLS unknown', VC.ui.badge(t.rls === true ? 'Locked' : (t.rls === false ? 'Open' : '?'), t.rls === true ? 'green' : (t.rls === false ? 'red' : 'gray')))))}
             </div>
           </div>

@@ -144,31 +144,29 @@
         meta.source = 'zip';
         await readZip(files[0], meta, out);
         meta.projectName = files[0].name.replace(/\.zip$/i, '');
-        out.meta = meta;
-        return out;
-      }
-      meta.source = 'folder';
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i];
-        const path = (f.webkitRelativePath || f.name).replace(/\\/g, '/');
-        if (path.split('/').indexOf('.git') !== -1) meta.sawGit = true;
-        if (!accept(path, f.size, meta)) continue;
-        const text = cleanText(await f.text().catch(() => ''));
-        if (text == null) { meta.skippedCount++; continue; }
-        meta.count++;
-        meta.totalBytes += f.size;
-        out.push({ path, size: f.size, text });
-        await maybeYield();
+      } else {
+        meta.source = 'folder';
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i];
+          const path = (f.webkitRelativePath || f.name).replace(/\\/g, '/');
+          if (path.split('/').indexOf('.git') !== -1) meta.sawGit = true;
+          if (!accept(path, f.size, meta)) continue;
+          const text = cleanText(await f.text().catch(() => ''));
+          if (text == null) { meta.skippedCount++; continue; }
+          meta.count++;
+          meta.totalBytes += f.size;
+          out.push({ path, size: f.size, text });
+          await maybeYield();
+        }
       }
     } else if (input instanceof File) {
       if (/\.zip$/i.test(input.name)) {
         meta.source = 'zip';
         await readZip(input, meta, out);
         meta.projectName = input.name.replace(/\.zip$/i, '');
-        out.meta = meta;
-        return out;
+      } else {
+        items = [{ isFile: true, file: (cb) => cb(input), fullPath: '/' + input.name }];
       }
-      items = [{ isFile: true, file: (cb) => cb(input), fullPath: '/' + input.name }];
     }
 
     if (items) {
@@ -176,6 +174,9 @@
       for (let i = 0; i < items.length; i++) await walk(items[i], meta, out, 0);
     }
 
+    /* A zip made from a project folder ("repo-main/" inside the archive, the
+       GitHub download and Finder "Compress" shape) has one wrapper dir; strip
+       it so paths read like the folder input's and route rules still match. */
     const prefix = commonPrefix(out.map((f) => f.path));
     if (prefix) { out.forEach((f) => { f.path = f.path.slice(prefix.length + 1) || f.path; }); meta.projectName = prefix; }
     out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
