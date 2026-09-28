@@ -560,24 +560,21 @@
   /* ------------------------------------------------------------------ *
    * Milestone prompt
    * ------------------------------------------------------------------ */
-  function milestonePrompt(project, milestone) {
-    const p = project || {};
-    const ms = milestones(p);
-    const m = milestone ? (ms.find((x) => x.id === milestone.id) || milestone) : ms[0];
-    if (!m) return '';
+  /** What earlier steps are already done, said to the AI so it doesn't redo them. */
+  function builtSoFar(p, idx, sm) {
+    if (idx === 0 && !sm) return 'The clickable skeleton (with fake data) is already built. Build on it; don\'t redo it.';
+    if (idx === 1 && sm) return 'Milestone 1 (the skeleton) is done. Build on it; don\'t redo it.';
+    if (idx === 1) return 'The skeleton and milestone 1 are done. Build on them; don\'t redo them.';
+    if (idx > 1) return (sm ? 'Milestones' : 'The skeleton and milestones') + ' 1–' + idx + ' are done. Build on them; don\'t redo them.';
+    return '';
+  }
+
+  function milestonePromptBody(p, m, idx, total, built, titleSuffix, sm) {
     const b = builderOf(p);
     const fw = frameworkOf(p);
-    const idx = Math.max(0, ms.indexOf(m));
-    const total = ms.length || 1;
-    const sm = starterMilestone(p);
     const out = [];
 
-    out.push('Milestone ' + (idx + 1) + ' of ' + total + ': ' + unpunct(m.title));
-    let built = '';
-    if (idx === 0 && !sm) built = 'The clickable skeleton (with fake data) is already built. Build on it; don\'t redo it.';
-    else if (idx === 1 && sm) built = 'Milestone 1 (the skeleton) is done. Build on it; don\'t redo it.';
-    else if (idx === 1) built = 'The skeleton and milestone 1 are done. Build on them; don\'t redo them.';
-    else if (idx > 1) built = (sm ? 'Milestones' : 'The skeleton and milestones') + ' 1–' + idx + ' are done. Build on them; don\'t redo them.';
+    out.push('Milestone ' + (idx + 1) + ' of ' + total + ': ' + unpunct(m.title) + (titleSuffix || ''));
     out.push(('Follow the project brief (' + briefRef(p) + '). ' + built).trim());
     out.push('');
 
@@ -662,6 +659,72 @@
     out.push('');
     out.push('When finished: tell me in plain English what changed and how to test it, step by step.');
     return out.join('\n');
+  }
+
+  function milestonePrompt(project, milestone) {
+    const p = project || {};
+    const ms = milestones(p);
+    const m = milestone ? (ms.find((x) => x.id === milestone.id) || milestone) : ms[0];
+    if (!m) return '';
+    const idx = Math.max(0, ms.indexOf(m));
+    const total = ms.length || 1;
+    const sm = starterMilestone(p);
+    return milestonePromptBody(p, m, idx, total, builtSoFar(p, idx, sm), '', sm);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Token-cost warnings: flag a step likely to burn heavy tokens (many
+   * files, a rewrite) and split it into smaller same-rules prompts.
+   * ------------------------------------------------------------------ */
+  const HEAVY_TOKENS = 700;
+  const HEAVY_FILES = 6;
+  const REWRITE_RE = /\brewrit(?:e|ing)|\brefactor|\bredesign|\boverhaul|\brestructur|\bmigrat(?:e|ion|ing)\b/i;
+
+  /** step = an entry from steps(project). Returns {heavy, filesEstimate, reasons, canSplit}. */
+  function estimateHeaviness(step) {
+    const s = step || {};
+    const m = s.milestone;
+    const features = arr(m && m.features);
+    // Rough, transparent proxy: each feature is roughly its own file or two, each
+    // service integration touches at least one more (a client, a config, a route).
+    const filesEstimate = Math.max(1, features.length + arr(s.services).length);
+    const text = [s.title, s.goal].concat(features).join(' ');
+    const rewriteHit = REWRITE_RE.test(text);
+    const reasons = [];
+    if (filesEstimate >= HEAVY_FILES) reasons.push('touches an estimated ' + filesEstimate + ' files');
+    if (rewriteHit) reasons.push('asks for a rewrite or redesign, which usually touches more than it sounds like');
+    if (s.size === 'L') reasons.push('is one of the larger steps in your build plan');
+    if ((s.tokens || 0) >= HEAVY_TOKENS) reasons.push('has a long prompt on its own (~' + s.tokens + ' tokens)');
+    return { heavy: reasons.length > 0, filesEstimate, reasons, canSplit: !!m && features.length > 1 };
+  }
+
+  /** Splits a step's milestone into `parts` smaller prompts (same brief, rules and context; fewer features each). */
+  function splitMilestone(project, step, parts) {
+    const p = project || {};
+    const s = step || {};
+    const m = s.milestone;
+    const features = arr(m && m.features);
+    if (!m || features.length < 2) return [];
+    const ms = milestones(p);
+    const idx = Math.max(0, ms.indexOf(m));
+    const total = ms.length || 1;
+    const sm = starterMilestone(p);
+    const built = builtSoFar(p, idx, sm);
+    const n = Math.max(2, Math.min(parts || 2, features.length));
+    const chunkSize = Math.ceil(features.length / n);
+    const chunks = [];
+    for (let i = 0; i < features.length; i += chunkSize) chunks.push(features.slice(i, i + chunkSize));
+    return chunks.map((chunk, i) => {
+      const last = i === chunks.length - 1;
+      const partM = Object.assign({}, m, {
+        features: chunk,
+        doneWhen: last ? m.doneWhen : ['This part works on its own and doesn\'t break anything already built.'],
+      });
+      const partBuilt = i === 0 ? built : (built ? built + ' ' : '') + 'Part ' + i + ' of this milestone is also already done; build on it.';
+      const titleSuffix = ' — part ' + (i + 1) + ' of ' + chunks.length;
+      const prompt = milestonePromptBody(p, partM, idx, total, partBuilt, titleSuffix, sm);
+      return { id: m.id + ':part' + (i + 1), title: line(m.title) + titleSuffix, prompt, tokens: tokens(prompt), services: arr(s.services) };
+    });
   }
 
   /* ------------------------------------------------------------------ *
@@ -894,8 +957,10 @@
       const many = secrets.length > 1;
       const names = secrets.length ? listJoin(secrets.map((s) => s.name)) : 'a secret key';
       if (real.length || !secrets.length) {
+        const b = builderOf(p);
+        const where = b && b.secrets && arr(b.secrets.secretKeys)[0] ? line(b.secrets.secretKeys[0]) : 'your builder\'s secrets settings';
         warnings.push('Your prompt contained ' + (many ? 'secrets' : 'a secret') + ' (' + names + '). We removed ' + (many ? 'them' : 'it') + '. Anything pasted into a chat can end up in logs, in your code, or on GitHub.');
-        warnings.push('To be safe, create a new key in that service\'s dashboard and delete the old one. Then add the new key in your builder\'s secrets settings, not in the chat.');
+        warnings.push('To be safe, create a new key in that service\'s dashboard and delete the old one. Then add the new key in ' + where + ' — not in the chat.');
       } else {
         warnings.push('Your prompt contained your ' + names + '. It\'s public by design, so it\'s not a disaster, but keys belong in env vars, not in chat. We took it out.');
       }
@@ -1323,6 +1388,8 @@
     steps,                 // (project) -> [{id, kind:'starter'|'milestone', number, title, goal, milestone, size, services, prompt, tokens}]
     starterMilestone,      // (project) -> the kit milestone the starter prompt covers, or null
     STARTER_ID,            // done-key for a separate starter step: project.prompts.done.starter
+    estimateHeaviness,     // (step) -> {heavy, filesEstimate, reasons, canSplit} — is this step likely to burn heavy tokens?
+    splitMilestone,        // (project, step, parts?) -> [{id, title, prompt, tokens, services}] smaller prompts covering the same milestone
     stuckAdvice,           // (input, project?) -> [{title, detail}] advice for the human
     stuckSituations: STUCK_SITUATIONS,
     detectSecrets,         // (text) -> [{name, service, env}] — never returns the secret itself

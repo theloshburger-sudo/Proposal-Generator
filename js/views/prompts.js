@@ -20,6 +20,7 @@
   let improving = false;
   let stuckDraft = { situation: '', goal: '', error: '', tried: '' };
   let stuckResult = null;
+  let splitParts = {};   // { [stepId]: [{id, title, prompt, tokens}] } — set once the user asks to split a heavy step
 
   const TABS = [
     ['steps', 'Build prompts'],
@@ -37,7 +38,18 @@
   /* ------------------------------------------------------------------ *
    * Tab: Build prompts
    * ------------------------------------------------------------------ */
+  function heavyCallout(s, h) {
+    if (!h.heavy) return '';
+    const primary = h.reasons[0];
+    return VC.ui.callout('warn', html`<span class="row sm" style="flex-wrap:wrap">
+      <span>This step ${primary} — consider splitting it into smaller prompts.</span>
+      ${h.canSplit ? html`<button class="btn sm" data-action="split-step" data-id="${s.id}">${VC.icon('wand', 14)} Split it for me</button>` : ''}
+    </span>`);
+  }
+
   function stepItem(s, isDone) {
+    const h = PE().estimateHeaviness(s);
+    const parts = splitParts[s.id];
     return html`<li id="step-${s.id}">
       <div class="check ${isDone ? 'is-done' : ''}" style="cursor:default;align-items:flex-start">
         <input type="checkbox" id="step-check-${s.id}" data-action="toggle-step" data-id="${s.id}" ${isDone ? 'checked' : ''}>
@@ -48,10 +60,20 @@
             ${VC.ui.badge('~' + s.tokens + ' tokens', 'gray')}
             ${arr(s.services).map((id) => { const svc = VC.data.serviceById && VC.data.serviceById(id); return svc ? VC.ui.badge(svc.name, 'gray') : ''; })}
           </div>
-          <details style="margin-top:8px">
+          ${!parts ? heavyCallout(s, h) : ''}
+          ${parts ? html`<div class="stack sm" style="margin-top:8px">
+            <div class="row sm spread">
+              <span class="small muted">Split into ${parts.length} smaller prompts. Paste one at a time, same order.</span>
+              <button class="btn ghost sm" data-action="unsplit-step" data-id="${s.id}">Use one prompt instead</button>
+            </div>
+            ${parts.map((part) => html`<details>
+              <summary class="small" style="cursor:pointer;color:var(--accent);font-weight:600;width:max-content">Show ${part.title.slice(part.title.lastIndexOf('—') + 1).trim()} (~${part.tokens} tokens)</summary>
+              <div style="margin-top:8px">${VC.ui.codeBlock(part.prompt, { title: part.title, copyLabel: 'Copy prompt' })}</div>
+            </details>`)}
+          </div>` : html`<details style="margin-top:8px">
             <summary class="small" style="cursor:pointer;color:var(--accent);font-weight:600;width:max-content">Show prompt</summary>
             <div style="margin-top:8px">${VC.ui.codeBlock(s.prompt, { title: 'Prompt', copyLabel: 'Copy prompt' })}</div>
-          </details>
+          </details>`}
         </div>
       </div>
     </li>`;
@@ -228,6 +250,18 @@
           q.prompts.done = q.prompts.done || {};
           if (on) q.prompts.done[id] = true; else delete q.prompts.done[id];
         });
+        ctx.rerender();
+      });
+
+      VC.delegate(el, 'click', '[data-action="split-step"]', (e, b) => {
+        const id = b.getAttribute('data-id');
+        const step = PE().steps(p).find((s) => s.id === id);
+        if (!step) return;
+        splitParts[id] = PE().splitMilestone(p, step, 2);
+        ctx.rerender();
+      });
+      VC.delegate(el, 'click', '[data-action="unsplit-step"]', (e, b) => {
+        delete splitParts[b.getAttribute('data-id')];
         ctx.rerender();
       });
 
