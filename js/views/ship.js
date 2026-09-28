@@ -52,11 +52,23 @@
     clerk: ['Clerk dashboard → Domains (in your Production instance).', 'Add your live domain and follow the DNS steps it shows.', 'Check sign-in and sign-up work on the live site.'],
     firebase: ['Firebase console → Authentication → Settings → Authorized domains.', 'Add your live domain (and your custom domain if you have one).', 'Check sign-in works on the live site.'],
   };
-  const AI_LIMITS = {
-    anthropic: 'Anthropic Console → Settings → Limits: set a monthly spend limit you\'re comfortable with.',
-    openai: 'OpenAI Platform → Settings → Limits: set a monthly budget and an email alert.',
-    replicate: 'Replicate → Account → Billing: set a monthly spend limit.',
-    elevenlabs: 'ElevenLabs → Subscription: check whether usage-based billing is on, and turn it off if you want a hard cap.',
+  /* Click-by-click steps to cap or get alerted on usage-based billing, per service.
+     Scoped to services that charge by USAGE (a bug or an abuser can run the bill up on
+     their own) — not payment processors, which only charge a % of money you already
+     collected. */
+  const SPEND_CAP_STEPS = {
+    anthropic: ['Go to console.anthropic.com and log in.', 'Click Settings (left sidebar) → Billing → Usage limits.', 'Set a monthly spend limit you\'d be fine paying if something went wrong.', 'Turn on email alerts so you hear about it before the limit hits.'],
+    openai: ['Go to platform.openai.com and log in.', 'Click your account menu (top right) → Billing → Limits.', 'Set a monthly budget, and an email alert threshold below it.'],
+    replicate: ['Go to replicate.com/account/billing.', 'Under "Spending limit", set a monthly cap you\'d be fine paying.'],
+    elevenlabs: ['Go to elevenlabs.io and open your account\'s Subscription page.', 'Check whether usage-based billing (paying for extra beyond your plan) is turned on.', 'Turn it off if you want a hard cap at your plan\'s included usage instead.'],
+    twilio: ['Go to console.twilio.com → Billing → Overview.', 'Click "Set a spending limit" and set a monthly cap.', 'Also add a Usage Trigger (Billing → Usage Triggers) to email you at a lower threshold first — texts and calls are the classic runaway-bill risk.'],
+    cloudinary: ['Go to your Cloudinary console → Settings (gear icon) → Usage & Limits.', 'Set an alert threshold on your plan, or upgrade to a plan with a hard cap if overage billing worries you.'],
+    mapbox: ['Go to account.mapbox.com → your account → Billing.', 'Under Usage, set a monthly spend alert.', 'Mapbox has no hard spending cap: if that matters, add your own request counter and disable the key past a threshold.'],
+    'google-maps': ['Go to console.cloud.google.com → Billing → Budgets & alerts.', 'Click "Create budget", set a monthly amount, and add alert thresholds (e.g. 50%, 90%, 100%).', 'For a hard cap, also set a daily quota: APIs & Services → your Maps API → Quotas.'],
+    sentry: ['Go to your Sentry organization → Settings → Subscription.', 'Under "Spend allocation" (or your plan\'s reserved volume), set a monthly cap on events, or turn off pay-as-you-go overage.'],
+    posthog: ['Go to your PostHog project → Settings → Billing.', 'Set a monthly billing limit for each product you use (Product analytics, Session replay, etc).'],
+    supabase: ['Go to your Supabase organization → Settings → Billing.', 'On the free plan there\'s no card on file, so you can\'t be surprise-billed — the project just pauses instead. Set a spend cap before you ever add a card.'],
+    firebase: ['Go to console.firebase.google.com → your project → Usage and billing.', 'Click "Details & settings" → Budgets & alerts, and set a monthly budget with alert thresholds, same as Google Cloud above.'],
   };
   const BACKUPS = {
     supabase: ['Open Supabase → Database → Backups to see what your plan includes.', 'On the free plan, export your important tables now and then (Table Editor → Export → CSV).', 'Once you have paying users, the Pro plan adds daily backups.'],
@@ -150,6 +162,22 @@
       });
     }
     groups.push({ id: 'safety', title: 'Safety check', icon: 'shield', lead: 'Check these before anyone signs up.', items: safety });
+
+    // --- Spending limits (mandatory: every usage-billed service in the kit, not just AI)
+    const spendCapIds = ids.filter((id) => SPEND_CAP_STEPS[id]);
+    if (spendCapIds.length) {
+      const billing = spendCapIds.map((id) => ({
+        id: 'spend-' + id,
+        title: `Set a spending cap or alert on ${nameOf(id)}`,
+        why: 'A bug in your app, or a stranger hitting it on purpose, can call this over and over. Without a cap, that becomes your bill.',
+        how: SPEND_CAP_STEPS[id],
+      }));
+      groups.push({
+        id: 'billing', title: 'Spending limits', icon: 'coin',
+        lead: 'Real builders have been hit with unprotected AI features running up around $1,000 a week in bills before anyone noticed. A cap takes two minutes per service and turns "surprise bill" into "hit a limit, fixed it Monday." Do every one below before you publish — this isn\'t optional.',
+        items: billing,
+      });
+    }
 
     // --- Keys & settings
     const hostSteps = arr(secrets.deployVars).length
@@ -413,20 +441,13 @@
     after.push({
       id: 'monitoring', title: 'You\'ll hear about errors before your users tell you',
       how: has(info.ids, 'sentry')
-        ? ['Trigger a test error in the live app (ask your builder how).', 'Check it shows up in Sentry → Issues.', 'Turn on email alerts for new issues.']
+        ? [`Ask ${B}: "Add a temporary button that throws an error, so I can test Sentry."`, 'Check it shows up in Sentry → Issues.', 'Turn on email alerts for new issues.']
         : ['Add Sentry\'s free plan.', `Ask ${B}: "Add Sentry error monitoring. Put the DSN in an environment variable."`, 'Trigger a test error and check it shows up in Sentry.'],
     });
     after.push({
       id: 'usage', extra: 'links', title: 'You know where to watch usage and costs',
       how: ['Bookmark the usage or billing page for each service (links below).', 'Check them once a week for the first month.', 'Set up billing alerts wherever the service offers them.'],
     });
-    if (aiIds.length) {
-      after.push({
-        id: 'ai-limits', title: `Spending limits are set on ${listJoin(aiIds.map(nameOf))}`,
-        why: 'An AI feature without a cap is the fastest way to a surprise bill.',
-        how: aiIds.map((id) => AI_LIMITS[id]).filter(Boolean).concat(['Pick a number you\'d be fine paying if something went wrong.']),
-      });
-    }
     if (has(info.ids, 'supabase') && info.budget === 'free') {
       after.push({
         id: 'supabase-pause', title: 'You know free Supabase projects pause when idle',
@@ -437,7 +458,7 @@
       id: 'leak-plan', title: 'You know what to do if a key leaks',
       how: [
         'Open that service\'s dashboard and roll (regenerate) the key. The old one stops working.',
-        'Paste the new key into your live site\'s settings and your builder, then publish again.',
+        `Paste the new key into your live site's settings and into ${B}, then publish again.`,
         'Check the service\'s usage page for anything you don\'t recognise.',
         'Run the safety scan to find how it leaked, and fix that too.',
       ],
